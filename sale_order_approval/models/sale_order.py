@@ -98,7 +98,7 @@ class SaleOrder(models.Model):
             'sale_order_approval.group_sale_order_approver', raise_if_not_found=False
         )
         if approver_group:
-            approvers = approver_group.users.filtered(
+            approvers = approver_group.all_user_ids.filtered(
                 lambda u: u.active and u != self.env.user
             )
             for order in self:
