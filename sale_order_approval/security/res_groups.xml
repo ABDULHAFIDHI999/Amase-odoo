@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="group_sale_order_approver" model="res.groups">
+        <field name="name">Sales Order Approver</field>
+        <field name="implied_ids" eval="[(4, ref('sales_team.group_sale_manager'))]"/>
+        <field name="comment">Members of this group can approve or refuse sales orders submitted for approval.</field>
+    </record>
+
+</odoo>

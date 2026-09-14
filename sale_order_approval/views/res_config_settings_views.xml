@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_sale_approval" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.sale.approval</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="sale.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <!-- Add the approval setting at the end of the Quotations &amp; Orders block -->
+            <xpath expr="//block[@name='quotation_order_setting_container']" position="inside">
+                <setting id="sale_order_approval_setting"
+                         help="Require a Sales Manager's approval before a quotation can be confirmed as a Sales Order.">
+                    <field name="sale_order_approval"/>
+                    <label for="sale_order_approval" string="Sales Order Approval"/>
+                    <div class="text-muted">
+                        Salespersons submit quotations for approval; Sales Managers approve or refuse them
+                        before the order is confirmed.
+                    </div>
+                </setting>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
