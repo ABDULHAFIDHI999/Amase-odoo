@@ -16,8 +16,15 @@ class SaleOrder(models.Model):
         string='Approver',
         tracking=True,
         copy=False,
-        domain=[('share', '=', False), ('active', '=', True)],
         help="The user who will be asked to approve this quotation before it is confirmed.",
+    )
+
+    # Computed domain: only administrator-role users, excluding the
+    # current user, so a salesperson cannot pick themselves.
+    approver_candidate_ids = fields.Many2many(
+        comodel_name='res.users',
+        string='Eligible Approvers',
+        compute='_compute_approver_candidate_ids',
     )
 
     approval_state = fields.Selection(
@@ -49,15 +56,13 @@ class SaleOrder(models.Model):
         copy=False,
     )
 
-    # Convenience boolean so views can hide/show things easily
     require_approval = fields.Boolean(
         string='Requires Approval',
         compute='_compute_require_approval',
     )
 
-    # Controls visibility of Approve / Refuse buttons in the view.
-    # True for: members of the approver group, Sales Managers, and
-    # system administrators — so admins never get locked out.
+    # True for members of the approver group, system admins, and
+    # superuser — controls button visibility without using groups=.
     is_approver = fields.Boolean(
         string='Is Approver',
         compute='_compute_is_approver',
@@ -82,6 +87,34 @@ class SaleOrder(models.Model):
         for order in self:
             order.is_approver = is_approver
 
+    def _compute_approver_candidate_ids(self):
+        """Return users who may act as approvers, excluding the current user.
+
+        Candidates are:
+        - Users in base.group_system  (Role / Administrator)
+        - Users in sale_order_approval.group_sale_order_approver
+        Excluding the logged-in user so a salesperson cannot pick themselves.
+        """
+        system_group = self.env.ref('base.group_system', raise_if_not_found=False)
+        approver_group = self.env.ref(
+            'sale_order_approval.group_sale_order_approver', raise_if_not_found=False
+        )
+
+        candidate_ids = set()
+        if system_group:
+            candidate_ids.update(system_group.user_ids.ids)
+        if approver_group:
+            candidate_ids.update(approver_group.user_ids.ids)
+
+        # Never include the current user in the list
+        candidate_ids.discard(self.env.uid)
+
+        candidates = self.env['res.users'].browse(list(candidate_ids)).filtered(
+            lambda u: u.active and not u.share
+        )
+        for order in self:
+            order.approver_candidate_ids = candidates
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -105,8 +138,6 @@ class SaleOrder(models.Model):
             lambda o: o.require_approval and o.approval_state != 'approved'
         )
         if orders_needing_approval:
-            # No one bypasses when approval is enabled — they must go
-            # through action_submit_for_approval → action_approve.
             return orders_needing_approval.action_submit_for_approval()
         return super().action_confirm()
 
@@ -123,7 +154,8 @@ class SaleOrder(models.Model):
                 )
             if not order.approver_id:
                 raise UserError(
-                    _("Please select an Approver on quotation '%s' before submitting for approval.", order.name)
+                    _("Please select an Approver on quotation '%s' before submitting for approval.",
+                      order.name)
                 )
 
         self.write({
@@ -160,9 +192,7 @@ class SaleOrder(models.Model):
             raise UserError(_("Only Sales Order Approvers can approve orders."))
         for order in self:
             if order.approval_state != 'pending':
-                raise UserError(
-                    _("Only orders pending approval can be approved.")
-                )
+                raise UserError(_("Only orders pending approval can be approved."))
         self.write({
             'approval_state': 'approved',
             'approved_by': self.env.uid,
@@ -174,10 +204,10 @@ class SaleOrder(models.Model):
                 feedback=_('Approved by %s.', self.env.user.name),
             )
             order.message_post(
-                body=_("Quotation approved by %s and confirmed as a Sales Order.", self.env.user.name),
+                body=_("Quotation approved by %s and confirmed as a Sales Order.",
+                       self.env.user.name),
                 subtype_xmlid='mail.mt_note',
             )
-        # Confirm the orders after approval
         return super(SaleOrder, self).action_confirm()
 
     def action_refuse(self):
@@ -186,9 +216,7 @@ class SaleOrder(models.Model):
             raise UserError(_("Only Sales Order Approvers can refuse orders."))
         for order in self:
             if order.approval_state != 'pending':
-                raise UserError(
-                    _("Only orders pending approval can be refused.")
-                )
+                raise UserError(_("Only orders pending approval can be refused."))
         self.write({
             'approval_state': 'refused',
             'approved_by': self.env.uid,

@@ -11,22 +11,19 @@
         <field name="arch" type="xml">
 
             <!-- ── Draft-state Confirm button ─────────────────────────
-                 Replace it entirely:
-                 • Approval ON + non-approver  → "Submit for Approval"
-                 • Approval ON + is_approver   → "Submit for Approval" too
-                   (approvers also go through Approve, not Confirm)
-                 • Approval OFF                → normal "Confirm"
+                 • Approval ON  + non-approver → "Submit for Approval"
+                 • Approval ON  + is_approver  → hidden (they use Approve)
+                 • Approval OFF               → normal "Confirm"
             ──────────────────────────────────────────────────────── -->
             <xpath expr="//button[@name='action_confirm' and not(@id)]" position="replace">
-                <!-- Approval enabled → Submit for Approval (everyone) -->
                 <button
                     string="Submit for Approval"
                     name="action_submit_for_approval"
                     type="object"
                     class="btn-primary"
                     data-hotkey="q"
-                    invisible="state != 'draft' or not require_approval"/>
-                <!-- Approval disabled → standard Confirm -->
+                    invisible="state != 'draft' or not require_approval or is_approver"/>
+                <!-- Approval disabled → standard Confirm for everyone -->
                 <button
                     string="Confirm"
                     name="action_confirm"
@@ -38,15 +35,14 @@
 
             <!-- ── Sent-state Confirm button (has id="action_confirm") -->
             <xpath expr="//button[@id='action_confirm']" position="replace">
-                <!-- Approval enabled → Submit for Approval (everyone) -->
                 <button
                     string="Submit for Approval"
                     name="action_submit_for_approval"
                     type="object"
                     class="btn-primary"
                     data-hotkey="q"
-                    invisible="state != 'sent' or not require_approval"/>
-                <!-- Approval disabled → standard Confirm -->
+                    invisible="state != 'sent' or not require_approval or is_approver"/>
+                <!-- Approval disabled → standard Confirm for everyone -->
                 <button
                     string="Confirm"
                     id="action_confirm"
@@ -60,7 +56,7 @@
 
             <!-- ── Approve / Refuse buttons ───────────────────────────
                  Visible only to approvers (is_approver) when pending.
-                 No groups= so the admin is never blocked.
+                 Uses invisible= not groups= so admin is never blocked.
             ──────────────────────────────────────────────────────── -->
             <xpath expr="//button[@name='action_cancel']" position="before">
                 <button
@@ -95,18 +91,23 @@
                 </div>
             </xpath>
 
-            <!-- ── Approver field in the main header group ────────────
-                 Placed in the right-hand "order_details" group so it
-                 is immediately visible when creating a quotation.
+            <!-- ── Approver selector in the main header group ─────────
+                 Domain uses approver_candidate_ids (computed):
+                   • Only Role/Administrator users
+                   • Excludes the current user (can't pick yourself)
+                 Field is readonly once order is confirmed/cancelled.
+                 Hidden entirely for approvers (they don't need to pick).
             ──────────────────────────────────────────────────────── -->
             <xpath expr="//group[@name='order_details']" position="inside">
+                <field name="approver_candidate_ids" invisible="1"/>
                 <field
                     name="approver_id"
                     widget="many2one_avatar_user"
+                    domain="[('id', 'in', approver_candidate_ids)]"
                     readonly="state not in ('draft', 'sent')"
-                    invisible="not require_approval"
+                    invisible="not require_approval or is_approver"
                     placeholder="Select an approver…"
-                    required="require_approval and state in ('draft', 'sent')"/>
+                    required="require_approval and state in ('draft', 'sent') and not is_approver"/>
             </xpath>
 
             <!-- ── Approval info tab ──────────────────────────────── -->
