@@ -11,6 +11,15 @@ class SaleOrder(models.Model):
     # Fields
     # ------------------------------------------------------------------
 
+    approver_id = fields.Many2one(
+        comodel_name='res.users',
+        string='Approver',
+        tracking=True,
+        copy=False,
+        domain=[('share', '=', False), ('active', '=', True)],
+        help="The user who will be asked to approve this quotation before it is confirmed.",
+    )
+
     approval_state = fields.Selection(
         selection=[
             ('pending', 'Pending Approval'),
@@ -91,15 +100,14 @@ class SaleOrder(models.Model):
     # ------------------------------------------------------------------
 
     def action_confirm(self):
-        """Override: if approval is required and the order is not yet
-        approved, redirect to the approval submission instead."""
+        """Override: if approval is required and not yet approved, block."""
         orders_needing_approval = self.filtered(
             lambda o: o.require_approval and o.approval_state != 'approved'
         )
         if orders_needing_approval:
-            # Approvers (and admins) can bypass the approval gate
-            if not self._user_is_approver():
-                return orders_needing_approval.action_submit_for_approval()
+            # No one bypasses when approval is enabled — they must go
+            # through action_submit_for_approval → action_approve.
+            return orders_needing_approval.action_submit_for_approval()
         return super().action_confirm()
 
     # ------------------------------------------------------------------
@@ -113,36 +121,37 @@ class SaleOrder(models.Model):
                 raise UserError(
                     _("Only quotations in Draft or Sent state can be submitted for approval.")
                 )
+            if not order.approver_id:
+                raise UserError(
+                    _("Please select an Approver on quotation '%s' before submitting for approval.", order.name)
+                )
+
         self.write({
             'approval_state': 'pending',
             'approved_by': False,
             'approval_date': False,
             'approval_note': False,
         })
+
         for order in self:
             order.message_post(
-                body=_("Order submitted for approval by %s.", order.env.user.name),
+                body=_("Quotation submitted for approval by %s. Waiting for %s.",
+                       self.env.user.name, order.approver_id.name),
                 subtype_xmlid='mail.mt_note',
             )
-        # Notify approvers via activity
-        approver_group = self.env.ref(
-            'sale_order_approval.group_sale_order_approver', raise_if_not_found=False
-        )
-        if approver_group:
-            approvers = approver_group.all_user_ids.filtered(
-                lambda u: u.active and u != self.env.user
+            # Schedule a To-Do activity on the selected approver
+            order.activity_schedule(
+                'mail.mail_activity_data_todo',
+                user_id=order.approver_id.id,
+                summary=_('Sales Order Approval Required'),
+                note=_(
+                    'The quotation <b>%s</b> for customer <b>%s</b> '
+                    'submitted by <b>%s</b> requires your approval.',
+                    order.name,
+                    order.partner_id.name,
+                    self.env.user.name,
+                ),
             )
-            for order in self:
-                for approver in approvers:
-                    order.activity_schedule(
-                        'mail.mail_activity_data_todo',
-                        user_id=approver.id,
-                        summary=_('Sales Order Approval Required'),
-                        note=_(
-                            'The sales order %s requires your approval.',
-                            order.name,
-                        ),
-                    )
         return True
 
     def action_approve(self):
@@ -165,10 +174,10 @@ class SaleOrder(models.Model):
                 feedback=_('Approved by %s.', self.env.user.name),
             )
             order.message_post(
-                body=_("Order approved by %s.", self.env.user.name),
+                body=_("Quotation approved by %s and confirmed as a Sales Order.", self.env.user.name),
                 subtype_xmlid='mail.mt_note',
             )
-        # Now actually confirm the orders
+        # Confirm the orders after approval
         return super(SaleOrder, self).action_confirm()
 
     def action_refuse(self):
@@ -191,10 +200,9 @@ class SaleOrder(models.Model):
                 feedback=_('Refused by %s.', self.env.user.name),
             )
             order.message_post(
-                body=_("Order refused by %s. Returned to Draft.", self.env.user.name),
+                body=_("Quotation refused by %s. Returned to Draft.", self.env.user.name),
                 subtype_xmlid='mail.mt_note',
             )
-        # Reset approval state and send back to draft
         return self.write({'approval_state': False})
 
     def action_draft(self):

@@ -2,7 +2,7 @@
 <odoo>
 
     <!-- ============================================================
-         Form view: header buttons & approval info
+         Form view: header buttons, approver field & approval info
     ============================================================ -->
     <record id="view_sale_order_form_approval" model="ir.ui.view">
         <field name="name">sale.order.form.approval</field>
@@ -10,28 +10,23 @@
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="arch" type="xml">
 
-            <!-- Replace the primary "Confirm" button (draft state) with a
-                 conditional Submit / Confirm depending on whether approval
-                 is required. -->
+            <!-- ── Draft-state Confirm button ─────────────────────────
+                 Replace it entirely:
+                 • Approval ON + non-approver  → "Submit for Approval"
+                 • Approval ON + is_approver   → "Submit for Approval" too
+                   (approvers also go through Approve, not Confirm)
+                 • Approval OFF                → normal "Confirm"
+            ──────────────────────────────────────────────────────── -->
             <xpath expr="//button[@name='action_confirm' and not(@id)]" position="replace">
-                <!-- APPROVAL ENABLED — show "Submit for Approval" for non-approvers -->
+                <!-- Approval enabled → Submit for Approval (everyone) -->
                 <button
                     string="Submit for Approval"
                     name="action_submit_for_approval"
                     type="object"
                     class="btn-primary"
                     data-hotkey="q"
-                    invisible="state != 'draft' or not require_approval or approval_state == 'approved' or is_approver"/>
-                <!-- Approvers can still confirm directly (approval enabled, already approved or is approver) -->
-                <button
-                    string="Confirm"
-                    name="action_confirm"
-                    type="object"
-                    context="{'validate_analytic': True}"
-                    class="btn-primary"
-                    data-hotkey="q"
-                    invisible="state != 'draft' or not require_approval or (not is_approver and approval_state != 'approved')"/>
-                <!-- When approval is disabled keep the standard confirm button -->
+                    invisible="state != 'draft' or not require_approval"/>
+                <!-- Approval disabled → standard Confirm -->
                 <button
                     string="Confirm"
                     name="action_confirm"
@@ -41,27 +36,17 @@
                     invisible="state != 'draft' or require_approval"/>
             </xpath>
 
-            <!-- Replace the primary "Confirm" button (sent state) similarly -->
+            <!-- ── Sent-state Confirm button (has id="action_confirm") -->
             <xpath expr="//button[@id='action_confirm']" position="replace">
-                <!-- APPROVAL ENABLED — submit (non-approvers) -->
+                <!-- Approval enabled → Submit for Approval (everyone) -->
                 <button
                     string="Submit for Approval"
                     name="action_submit_for_approval"
                     type="object"
                     class="btn-primary"
                     data-hotkey="q"
-                    invisible="state != 'sent' or not require_approval or approval_state == 'approved' or is_approver"/>
-                <!-- Approvers can still confirm directly in sent state -->
-                <button
-                    string="Confirm"
-                    id="action_confirm"
-                    name="action_confirm"
-                    type="object"
-                    context="{'validate_analytic': True}"
-                    class="btn-primary"
-                    data-hotkey="q"
-                    invisible="state != 'sent' or not require_approval or (not is_approver and approval_state != 'approved')"/>
-                <!-- When approval is disabled keep the standard confirm button (sent state) -->
+                    invisible="state != 'sent' or not require_approval"/>
+                <!-- Approval disabled → standard Confirm -->
                 <button
                     string="Confirm"
                     id="action_confirm"
@@ -73,8 +58,10 @@
                     invisible="state != 'sent' or require_approval"/>
             </xpath>
 
-            <!-- Approve / Refuse buttons — visible to approvers & admins (is_approver),
-                 hidden with invisible so no groups= restriction locks out admin -->
+            <!-- ── Approve / Refuse buttons ───────────────────────────
+                 Visible only to approvers (is_approver) when pending.
+                 No groups= so the admin is never blocked.
+            ──────────────────────────────────────────────────────── -->
             <xpath expr="//button[@name='action_cancel']" position="before">
                 <button
                     string="Approve"
@@ -91,29 +78,46 @@
                     invisible="approval_state != 'pending' or not is_approver"/>
             </xpath>
 
-            <!-- Approval status banner inside the form -->
+            <!-- ── Status banners ──────────────────────────────────── -->
             <xpath expr="//sheet" position="before">
                 <div class="alert alert-warning mb-0 text-center"
                      role="alert"
                      invisible="approval_state != 'pending'">
-                    <strong>⏳ Pending Approval</strong> — This order is awaiting approval by a Sales Manager.
+                    <strong>⏳ Pending Approval</strong> — This order is waiting for
+                    <field name="approver_id" readonly="1" nolabel="1" class="fw-bold d-inline-block"/> to approve it.
                 </div>
                 <div class="alert alert-danger mb-0 text-center"
                      role="alert"
                      invisible="approval_state != 'refused'">
-                    <strong>❌ Approval Refused</strong> — This order was refused.
+                    <strong>❌ Approval Refused</strong> — This order was refused by
+                    <field name="approved_by" readonly="1" nolabel="1" class="fw-bold d-inline-block"/>.
                     Please revise it and resubmit.
                 </div>
             </xpath>
 
-            <!-- Approval info tab (after existing Other Info tab) -->
+            <!-- ── Approver field in the main header group ────────────
+                 Placed in the right-hand "order_details" group so it
+                 is immediately visible when creating a quotation.
+            ──────────────────────────────────────────────────────── -->
+            <xpath expr="//group[@name='order_details']" position="inside">
+                <field
+                    name="approver_id"
+                    widget="many2one_avatar_user"
+                    readonly="state not in ('draft', 'sent')"
+                    invisible="not require_approval"
+                    placeholder="Select an approver…"
+                    required="require_approval and state in ('draft', 'sent')"/>
+            </xpath>
+
+            <!-- ── Approval info tab ──────────────────────────────── -->
             <xpath expr="//page[@name='other_information']" position="after">
                 <page string="Approval" name="approval_info"
                       invisible="not require_approval">
                     <group>
                         <group string="Approval Status">
+                            <field name="approver_id" readonly="1" widget="many2one_avatar_user"/>
                             <field name="approval_state" readonly="1"/>
-                            <field name="approved_by" readonly="1"/>
+                            <field name="approved_by" readonly="1" widget="many2one_avatar_user"/>
                             <field name="approval_date" readonly="1"/>
                         </group>
                         <group string="Note">
