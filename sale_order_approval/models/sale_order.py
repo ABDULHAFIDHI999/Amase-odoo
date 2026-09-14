@@ -46,6 +46,14 @@ class SaleOrder(models.Model):
         compute='_compute_require_approval',
     )
 
+    # Controls visibility of Approve / Refuse buttons in the view.
+    # True for: members of the approver group, Sales Managers, and
+    # system administrators — so admins never get locked out.
+    is_approver = fields.Boolean(
+        string='Is Approver',
+        compute='_compute_is_approver',
+    )
+
     # ------------------------------------------------------------------
     # Computed
     # ------------------------------------------------------------------
@@ -54,6 +62,29 @@ class SaleOrder(models.Model):
     def _compute_require_approval(self):
         for order in self:
             order.require_approval = order.company_id.sale_order_approval
+
+    def _compute_is_approver(self):
+        user = self.env.user
+        is_approver = (
+            user.has_group('sale_order_approval.group_sale_order_approver')
+            or user.has_group('base.group_system')
+            or user._is_admin()
+        )
+        for order in self:
+            order.is_approver = is_approver
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _user_is_approver(self):
+        """Return True if the current user may approve/refuse orders."""
+        user = self.env.user
+        return (
+            user.has_group('sale_order_approval.group_sale_order_approver')
+            or user.has_group('base.group_system')
+            or user._is_admin()
+        )
 
     # ------------------------------------------------------------------
     # Overrides
@@ -66,8 +97,8 @@ class SaleOrder(models.Model):
             lambda o: o.require_approval and o.approval_state != 'approved'
         )
         if orders_needing_approval:
-            # Only Sales Managers can bypass the approval gate
-            if not self.env.user.has_group('sale_order_approval.group_sale_order_approver'):
+            # Approvers (and admins) can bypass the approval gate
+            if not self._user_is_approver():
                 return orders_needing_approval.action_submit_for_approval()
         return super().action_confirm()
 
@@ -116,7 +147,7 @@ class SaleOrder(models.Model):
 
     def action_approve(self):
         """Approve submitted sales orders and confirm them."""
-        if not self.env.user.has_group('sale_order_approval.group_sale_order_approver'):
+        if not self._user_is_approver():
             raise UserError(_("Only Sales Order Approvers can approve orders."))
         for order in self:
             if order.approval_state != 'pending':
@@ -142,7 +173,7 @@ class SaleOrder(models.Model):
 
     def action_refuse(self):
         """Refuse submitted sales orders — sends them back to Draft."""
-        if not self.env.user.has_group('sale_order_approval.group_sale_order_approver'):
+        if not self._user_is_approver():
             raise UserError(_("Only Sales Order Approvers can refuse orders."))
         for order in self:
             if order.approval_state != 'pending':
